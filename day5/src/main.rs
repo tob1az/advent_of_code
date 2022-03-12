@@ -31,30 +31,56 @@ fn generate_polyline(line: &data::Line) -> HashSet<data::Point> {
             .map(|x| data::Point { x, y })
             .collect::<HashSet<data::Point>>()
     } else {
-        unimplemented!()
+        let x_range = if line.b.x > line.a.x {
+            (line.a.x..=line.b.x).into_iter().collect::<Vec<u32>>()
+        } else {
+            (line.b.x..=line.a.x)
+                .into_iter()
+                .rev()
+                .collect::<Vec<u32>>()
+        };
+
+        let y_range = if line.b.y > line.a.y {
+            (line.a.y..=line.b.y).into_iter().collect::<Vec<u32>>()
+        } else {
+            (line.b.y..=line.a.y)
+                .into_iter()
+                .rev()
+                .collect::<Vec<u32>>()
+        };
+        x_range
+            .into_iter()
+            .zip(y_range.into_iter())
+            .map(|(x, y)| data::Point { x, y })
+            .collect::<HashSet<data::Point>>()
     }
 }
 
-fn calculate_solution(lines: &[data::Line]) -> u32 {
-    // find all points of each orthogonal line
-    // find all intersections
-    let orthogonal_lines: Vec<HashSet<data::Point>> = lines
-        .iter()
-        .filter(|l| l.a.x == l.b.x || l.a.y == l.b.y)
-        .map(|l| generate_polyline(&l))
-        .collect();
+fn count_overlapping_points(polylines: &Vec<HashSet<data::Point>>) -> u32 {
     let mut overlapping_points: HashSet<&data::Point> = HashSet::new();
-    for (x, y) in orthogonal_lines.iter().tuple_combinations() {
-        if x.intersection(&y).count() > 0 {
-            overlapping_points = overlapping_points
-                .drain()
-                .chain(x.intersection(&y))
-                .collect();
+    for (x, y) in polylines.iter().tuple_combinations() {
+        for point in x.intersection(&y) {
+            overlapping_points.insert(point);
         }
     }
     overlapping_points.len() as u32
 }
 
+fn calculate_solution(lines: &[data::Line]) -> (u32, u32) {
+    let orthogonal_lines: Vec<HashSet<data::Point>> = lines
+        .iter()
+        .filter(|l| l.a.x == l.b.x || l.a.y == l.b.y)
+        .map(|l| generate_polyline(&l))
+        .collect();
+    let all_lines: Vec<HashSet<data::Point>> =
+        lines.iter().map(|l| generate_polyline(&l)).collect();
+
+    let cross_points = count_overlapping_points(&orthogonal_lines);
+    let all_intersection_points = count_overlapping_points(&all_lines);
+    (cross_points, all_intersection_points)
+}
+
 fn main() {
-    println!("Solution {}", calculate_solution(&data::LINES));
+    let (cross_count, intersection_count) = calculate_solution(&data::LINES);
+    println!("Solution {} {}", cross_count, intersection_count);
 }
