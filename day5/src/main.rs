@@ -1,5 +1,8 @@
 mod data;
 
+extern crate itertools;
+
+use itertools::Itertools;
 use std::collections::HashSet;
 
 fn generate_polyline(line: &data::Line) -> HashSet<data::Point> {
@@ -41,14 +44,12 @@ fn calculate_solution(lines: &[data::Line]) -> u32 {
         .map(|l| generate_polyline(&l))
         .collect();
     let mut overlapping_points: HashSet<&data::Point> = HashSet::new();
-    for x in orthogonal_lines.iter() {
-        for y in orthogonal_lines.iter() {
-            if x != y {
-                overlapping_points = overlapping_points
-                    .drain()
-                    .chain(x.intersection(&y))
-                    .collect();
-            }
+    for (x, y) in orthogonal_lines.iter().tuple_combinations() {
+        if x.intersection(&y).count() > 0 {
+            overlapping_points = overlapping_points
+                .drain()
+                .chain(x.intersection(&y))
+                .collect();
         }
     }
     overlapping_points.len() as u32
