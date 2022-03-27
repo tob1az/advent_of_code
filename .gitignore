@@ -7,6 +7,7 @@ day7/target
 day8/target
 day9/target
 day10/target
+day11/target
 day2/src/main
 day3/src/main
 day4/src/main
@@ -16,3 +17,5 @@ day7/src/main
 day8/src/main
 day9/src/main
 day10/src/main
+day11/src/main
+.vscode/
