@@ -1,6 +1,9 @@
+extern crate rayon;
+
 mod data;
 
 use std::collections::HashMap;
+use rayon::prelude::*;
 
 type Polymer = Vec<u8>;
 type PolymerView = [u8];
@@ -8,15 +11,18 @@ type LookupTable = HashMap<Polymer, Polymer>;
 
 const SPLIT_THRESHOLD: usize = 10;
 const STEP_COUNT: usize = 30;
+const WINDOW_SIZE: usize = 2;
+const HISTOGRAM_SIZE: usize = 256;
 
 struct Histogram {
-    frequencies: [usize; 256],
+    frequencies: [usize; HISTOGRAM_SIZE],
 }
 
 impl Histogram {
+
     fn new() -> Histogram {
         Histogram {
-            frequencies: [0; 256],
+            frequencies: [0; HISTOGRAM_SIZE],
         }
     }
 
@@ -25,6 +31,20 @@ impl Histogram {
             let index = *element as usize;
             self.frequencies[index] += 1;
         }
+    }
+
+    fn merge(&mut self, another: Histogram) {
+        for i in 0..HISTOGRAM_SIZE {
+            self.frequencies[i] += another.frequencies[i];
+        }
+    }
+
+    fn add(&self, another: Histogram) -> Histogram {
+        let mut new_histogram = Self::new();
+        for i in 0..HISTOGRAM_SIZE {
+            new_histogram.frequencies[i] = self.frequencies[i] + another.frequencies[i];
+        }
+        new_histogram
     }
 }
 
@@ -75,19 +95,20 @@ fn grow_polymer(
         }
         histogram.update(&result);
     } else {
-        let mut window_number = 0;
-        let last_window = result.len() - 2;
-        for window in result.windows(2) {
+        let last_window = result.len() - WINDOW_SIZE;
+        let update = result.par_windows(WINDOW_SIZE).enumerate().map(|(window_number, window)| {
+            let mut new_histogram  = Histogram::new();
             let remaining_steps = step_count - SPLIT_THRESHOLD;
             grow_polymer(
                 window,
                 lookup_table,
                 remaining_steps,
                 window_number != last_window,
-                histogram,
+                &mut new_histogram,
             );
-            window_number += 1;
-        }
+            new_histogram
+        }).reduce(Histogram::new, |total, h| total.add(h));
+        histogram.merge(update);
     }
 }
 
@@ -97,6 +118,8 @@ fn calculate_solution(polymer_template: &str, rules: &[(&str, &str)]) -> usize {
         .map(|(k, v)| (k.as_bytes().to_vec(), v.as_bytes().to_vec()))
         .collect();
     let mut histogram = Histogram::new();
+
+    println!("Calculate {} steps", STEP_COUNT);
 
     grow_polymer(
         polymer_template.as_bytes(),
