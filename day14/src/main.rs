@@ -1,140 +1,96 @@
-extern crate rayon;
+extern crate itertools;
 
 mod data;
 
+use itertools::Itertools;
 use std::collections::HashMap;
-use rayon::prelude::*;
 
-type Polymer = Vec<u8>;
-type PolymerView = [u8];
-type LookupTable = HashMap<Polymer, Polymer>;
+type Pair = (u8, u8);
+type LookupTable = HashMap<Pair, (Pair, Pair)>;
+type PairFrequencies = HashMap<Pair, usize>;
 
-const SPLIT_THRESHOLD: usize = 10;
-const STEP_COUNT: usize = 30;
-const WINDOW_SIZE: usize = 2;
-const HISTOGRAM_SIZE: usize = 256;
-
-struct Histogram {
-    frequencies: [usize; HISTOGRAM_SIZE],
+#[derive(Clone)]
+struct Polymer {
+    frequencies: PairFrequencies,
 }
 
-impl Histogram {
+impl Polymer {
+    fn from(polymer_template: &str) -> Self {
+        let mut frequencies: PairFrequencies = HashMap::new();
 
-    fn new() -> Histogram {
-        Histogram {
-            frequencies: [0; HISTOGRAM_SIZE],
+        for w in polymer_template.as_bytes().windows(2) {
+            let pair = w.iter().cloned().next_tuple().unwrap();
+            *frequencies.entry(pair).or_insert(0) += 1;
         }
+
+        Self { frequencies }
     }
 
-    fn update(&mut self, polymer: &PolymerView) {
-        for element in polymer.iter() {
-            let index = *element as usize;
-            self.frequencies[index] += 1;
-        }
-    }
+    fn grow_into(&self, rules: &LookupTable) -> Self {
+        let mut frequencies: PairFrequencies = HashMap::new();
 
-    fn merge(&mut self, another: Histogram) {
-        for i in 0..HISTOGRAM_SIZE {
-            self.frequencies[i] += another.frequencies[i];
-        }
-    }
+        self.frequencies.iter().for_each(|(k, v)| {
+            let new_pairs = rules.get(k).unwrap();
+            *frequencies.entry(new_pairs.0).or_insert(0) += v;
+            *frequencies.entry(new_pairs.1).or_insert(0) += v;
+        });
 
-    fn add(&self, another: Histogram) -> Histogram {
-        let mut new_histogram = Self::new();
-        for i in 0..HISTOGRAM_SIZE {
-            new_histogram.frequencies[i] = self.frequencies[i] + another.frequencies[i];
-        }
-        new_histogram
+        Self { frequencies }
     }
 }
 
-fn make_step(polymer: &PolymerView, table: &LookupTable) -> Polymer {
-    let mut new_polymer = Polymer::with_capacity(polymer.len() * 2);
-    for key in polymer.windows(2) {
-        match table.get(key) {
-            Some(value) => {
-                new_polymer.push(value[0]);
-                new_polymer.push(value[1])
-            }
-            None => new_polymer.push(key[0]),
-        }
+fn grow_polymer(rules: &LookupTable, base: &Polymer, step_count: usize) -> Polymer {
+    let mut polymer = base.clone();
+    for _i in 0..step_count {
+        let new_polymer = polymer.grow_into(rules);
+        polymer = new_polymer;
     }
-    new_polymer.push(*polymer.last().unwrap());
-    new_polymer
+    polymer
 }
 
-fn to_string(polymer: &PolymerView) -> String {
-    std::str::from_utf8(polymer).unwrap().to_string()
+// Almost each element is duplicated in 2 pairs that wrap it around, except for elements at both ends.
+// To compensate missing neighbor pairs, we increase frequency. It will not affect other elements
+// because of integer division
+fn element_frequency(pair_element_frequency: usize) -> usize {
+    (pair_element_frequency + 1) / 2
 }
 
-fn grow_polymer(
-    polymer: &PolymerView,
-    lookup_table: &LookupTable,
-    step_count: usize,
-    cut_last_element: bool,
-    histogram: &mut Histogram,
-) {
-    let mut result = polymer;
-    let steps_left = std::cmp::min(step_count, SPLIT_THRESHOLD);
-    let mut new_polymer;
-    for _i in 0..steps_left {
-        new_polymer = make_step(&result, lookup_table);
-        /*println!(
-            "{} - {} => {}, {}",
-            _i,
-            to_string(&result),
-            new_polymer.len(),
-            to_string(&new_polymer),
-        );*/
-        result = new_polymer.as_slice();
-    }
+fn compute_element_frequencies_span(histogram: Polymer) -> usize {
+    let mut pair_element_frequencies: HashMap<u8, usize> = HashMap::new();
 
-    if step_count <= SPLIT_THRESHOLD {
-        if cut_last_element {
-            result = &result[0..result.len() - 1];
-        }
-        histogram.update(&result);
-    } else {
-        let last_window = result.len() - WINDOW_SIZE;
-        let update = result.par_windows(WINDOW_SIZE).enumerate().map(|(window_number, window)| {
-            let mut new_histogram  = Histogram::new();
-            let remaining_steps = step_count - SPLIT_THRESHOLD;
-            grow_polymer(
-                window,
-                lookup_table,
-                remaining_steps,
-                window_number != last_window,
-                &mut new_histogram,
-            );
-            new_histogram
-        }).reduce(Histogram::new, |total, h| total.add(h));
-        histogram.merge(update);
-    }
+    histogram.frequencies.into_iter().for_each(|(k, v)| {
+        *pair_element_frequencies.entry(k.0).or_insert(0) += v;
+        *pair_element_frequencies.entry(k.1).or_insert(0) += v;
+    });
+
+    let element_frequencies: Vec<_> = pair_element_frequencies
+        .values()
+        .map(|v| element_frequency(*v))
+        .sorted()
+        .collect();
+
+    let least_common = element_frequencies.iter().next().unwrap();
+    let most_common = element_frequencies.iter().last().unwrap();
+    println!("min {} max {}", least_common, most_common);
+
+    most_common - least_common
 }
 
-fn calculate_solution(polymer_template: &str, rules: &[(&str, &str)]) -> usize {
+fn create_pair(value: &str) -> Pair {
+    value.as_bytes().iter().cloned().next_tuple().unwrap()
+}
+
+fn calculate_solution(polymer_template: &str, rules: &[(&str, (&str, &str))]) -> (usize, usize) {
     let lookup_table: LookupTable = rules
         .iter()
-        .map(|(k, v)| (k.as_bytes().to_vec(), v.as_bytes().to_vec()))
+        .map(|(k, v)| (create_pair(*k), (create_pair(v.0), create_pair(v.1))))
         .collect();
-    let mut histogram = Histogram::new();
+    let base = Polymer::from(polymer_template);
 
-    println!("Calculate {} steps", STEP_COUNT);
-
-    grow_polymer(
-        polymer_template.as_bytes(),
-        &lookup_table,
-        STEP_COUNT,
-        false,
-        &mut histogram,
-    );
-    histogram.frequencies.iter().max().unwrap()
-        - histogram
-            .frequencies
-            .iter()
-            .filter(|f| **f != 0)
-            .min()
-            .unwrap()
+    (
+        compute_element_frequencies_span(grow_polymer(&lookup_table, &base, 10)),
+        compute_element_frequencies_span(grow_polymer(&lookup_table, &base, 40)),
+    )
 }
 
 fn main() {
