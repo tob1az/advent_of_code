@@ -33,7 +33,7 @@ fn build_graph(risk_map: &RiskMap) -> UnGraph<usize, ()> {
     graph
 }
 
-fn calculate_solution(risk_map: &RiskMap) -> usize {
+fn find_safest_path(risk_map: &RiskMap) -> usize {
     let graph = build_graph(risk_map);
     let start = graph.node_indices().next().unwrap();
     let end = graph.node_indices().last().unwrap();
@@ -43,12 +43,36 @@ fn calculate_solution(risk_map: &RiskMap) -> usize {
         |e| e == end,
         |edge| *graph.node_weight(edge.target()).unwrap(),
         |_| 0,
-    ).unwrap();
-    println!(
-        "safest_path from {:?} to {:?} is {:?}",
-        start, end, safest_path
-    );
+    )
+    .unwrap();
+
     safest_path.0
+}
+
+fn expand_map(risk_map: &RiskMap) -> RiskMap {
+    const NUM_TILES: usize = 5;
+    let max_risk = 9;
+    let shape = risk_map.shape();
+    let rows = shape[0];
+    let columns = shape[1];
+    let new_shape = (rows * NUM_TILES, columns * NUM_TILES);
+    RiskMap::from_shape_fn(new_shape, |(i, j)| {
+        let tile_i = i / rows;
+        let tile_j = j / columns;
+        let risk = risk_map[(i % rows, j % columns)] + tile_i + tile_j;
+        if risk > max_risk {
+            risk - max_risk
+        } else {
+            risk
+        }
+    })
+}
+
+fn calculate_solution(risk_map: &RiskMap) -> (usize, usize) {
+    (
+        find_safest_path(risk_map),
+        find_safest_path(&expand_map(risk_map)),
+    )
 }
 
 fn main() {
