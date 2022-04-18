@@ -1,12 +1,14 @@
 mod data;
 
+use std::convert::TryInto;
+
 struct BitReader {
     data: Vec<u8>,
     cursor: usize,
     bit_position: u32,
 }
 
-type Number = u32;
+type Number = u64;
 
 impl BitReader {
     fn new(hex_string: &str) -> BitReader {
@@ -28,13 +30,6 @@ impl BitReader {
         self.bit_position += bits;
         let offset = u8::BITS - self.bit_position;
         let number = (self.data[self.cursor] & Self::bit_mask(bits, offset)) >> offset;
-        println!(
-            "mask = {0:b}, byte = {1:x}/{1:b}, number = {2:b}, bit_position = {3}",
-            Self::bit_mask(bits, offset),
-            self.data[self.cursor],
-            number,
-            self.bit_position
-        );
         if self.bit_position == u8::BITS {
             self.bit_position = 0;
             self.cursor += 1;
@@ -76,6 +71,34 @@ impl BitReader {
 type Version = Number;
 type Value = Number;
 
+enum Operation {
+    Sum = 0,
+    Product = 1,
+    Min = 2,
+    Max = 3,
+    GreaterThan = 5,
+    LessThan = 6,
+    EqualTo = 7,
+}
+
+impl TryFrom<Number> for Operation {
+    type Error = ();
+
+    fn try_from(value: Number) -> Result<Self, Self::Error> {
+        use Operation::*;
+        match value {
+            x if x == Sum as Number => Ok(Sum),
+            x if x == Product as Number => Ok(Product),
+            x if x == Min as Number => Ok(Min),
+            x if x == Max as Number => Ok(Max),
+            x if x == GreaterThan as Number => Ok(GreaterThan),
+            x if x == LessThan as Number => Ok(LessThan),
+            x if x == EqualTo as Number => Ok(EqualTo),
+            _ => Err(()),
+        }
+    }
+}
+
 enum Packet {
     Literal {
         version: Version,
@@ -83,6 +106,7 @@ enum Packet {
     },
     Operator {
         version: Version,
+        operation: Operation,
         subpackets: Vec<Packet>,
     },
 }
@@ -104,7 +128,6 @@ fn parse_literal(reader: &mut BitReader) -> Option<Number> {
 fn parse_expression(reader: &mut BitReader) -> Option<Packet> {
     let version = reader.read_bits(3)?;
     let type_id = reader.read_bits(3)?;
-    println!("type id = {}", type_id);
     if type_id == LITERAL {
         let number = parse_literal(reader)?;
         Some(Packet::Literal {
@@ -114,6 +137,7 @@ fn parse_expression(reader: &mut BitReader) -> Option<Packet> {
     } else {
         let mut subpackets = Vec::new();
         let length_type = reader.read_bits(1)?;
+        let operation: Operation = type_id.try_into().ok()?;
         if length_type == 0 {
             let mut bits_left = reader.read_bits(15)?;
             while bits_left > 0 {
@@ -121,7 +145,7 @@ fn parse_expression(reader: &mut BitReader) -> Option<Packet> {
                 let packet = parse_expression(reader)?;
                 subpackets.push(packet);
                 let after = reader.bits_left();
-                bits_left -= before - after;
+                bits_left -= (before - after) as Number;
             }
         } else {
             let count = reader.read_bits(11)?;
@@ -132,17 +156,19 @@ fn parse_expression(reader: &mut BitReader) -> Option<Packet> {
         }
         Some(Packet::Operator {
             version,
+            operation,
             subpackets,
         })
     }
 }
 
-fn sum_versions(packet: &Packet) -> u32 {
+fn sum_versions(packet: &Packet) -> Number {
     match packet {
         Packet::Literal { version, .. } => *version,
         Packet::Operator {
             version,
             subpackets,
+            ..
         } => {
             version
                 + subpackets
@@ -153,10 +179,33 @@ fn sum_versions(packet: &Packet) -> u32 {
     }
 }
 
-fn calculate_solution(expression: &str) -> u32 {
+fn evaluate_expression(packet: &Packet) -> Number {
+    match packet {
+        Packet::Literal { value, .. } => *value,
+        Packet::Operator {
+            operation,
+            subpackets,
+            ..
+        } => {
+            let mut literals = subpackets.iter().map(|p| evaluate_expression(p));
+            use Operation::*;
+            match *operation {
+                Sum => literals.fold(0, |s, v| s + v),
+                Product => literals.fold(1, |p, v| p * v),
+                Min => literals.min().unwrap(),
+                Max => literals.max().unwrap(),
+                GreaterThan => (literals.next().unwrap() > literals.next().unwrap()) as Number,
+                LessThan => (literals.next().unwrap() < literals.next().unwrap()) as Number,
+                EqualTo => (literals.next().unwrap() == literals.next().unwrap()) as Number,
+            }
+        }
+    }
+}
+
+fn calculate_solution(expression: &str) -> (Number, Number) {
     let mut reader = BitReader::new(expression);
     let packet = parse_expression(&mut reader).unwrap();
-    sum_versions(&packet)
+    (sum_versions(&packet), evaluate_expression(&packet))
 }
 
 fn main() {
