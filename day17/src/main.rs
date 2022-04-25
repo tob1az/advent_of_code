@@ -31,7 +31,7 @@ fn calculate_trajectory(
     .collect()
 }
 
-fn estimate_start_vx(final_x: Distance) -> i32 {
+fn find_min_acceptable_vx(final_x: Distance) -> i32 {
     let mut x = final_x;
     let mut v = 0;
     while x > 0 {
@@ -47,11 +47,14 @@ fn calculate_solution(
     from_y: Elevation,
     to_y: Elevation,
 ) -> Elevation {
+    // hitting at the nearest end of the target area with minimum acceptable horizontal speed
+    // gives the steepest projectile curve
     let end_x = from_x;
-    let vx = estimate_start_vx(end_x);
+    let vx = find_min_acceptable_vx(end_x);
     println!("end_x={} start_vx={}", end_x, vx);
 
     let mut max_elevation = 0;
+    // find maximum vertical speed which does not cause the probe pass the target area
     for vy in 1..100 {
         let trajectory = calculate_trajectory(vx, vy, to_x, from_y);
         let zenith = trajectory.iter().max_by_key(|(_, y)| *y).unwrap();
