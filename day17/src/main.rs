@@ -1,5 +1,7 @@
 mod data;
 
+use std::collections::HashSet;
+
 type Distance = i32;
 type Elevation = i32;
 type Point = (Distance, Elevation);
@@ -31,6 +33,20 @@ fn calculate_trajectory(
     .collect()
 }
 
+fn detect_hit_point(
+    trajectory: &[Point],
+    from_x: Distance,
+    to_x: Distance,
+    from_y: Elevation,
+    to_y: Elevation,
+) -> Option<Point> {
+    trajectory
+        .iter()
+        .cloned()
+        .filter(|(x, y)| *x >= from_x && *x <= to_x && *y >= from_y && *y <= to_y)
+        .nth(0)
+}
+
 fn find_min_acceptable_vx(final_x: Distance) -> i32 {
     let mut x = final_x;
     let mut v = 0;
@@ -41,7 +57,7 @@ fn find_min_acceptable_vx(final_x: Distance) -> i32 {
     v
 }
 
-fn calculate_solution(
+fn find_steepest_hit_curve_elevation(
     from_x: Distance,
     to_x: Distance,
     from_y: Elevation,
@@ -51,23 +67,67 @@ fn calculate_solution(
     // gives the steepest projectile curve
     let end_x = from_x;
     let vx = find_min_acceptable_vx(end_x);
-    println!("end_x={} start_vx={}", end_x, vx);
-
     let mut max_elevation = 0;
     // find maximum vertical speed which does not cause the probe pass the target area
     for vy in 1..100 {
         let trajectory = calculate_trajectory(vx, vy, to_x, from_y);
         let zenith = trajectory.iter().max_by_key(|(_, y)| *y).unwrap();
-        let hit = trajectory
-            .iter()
-            .filter(|(x, y)| *x >= from_x && *x <= to_x && *y >= from_y && *y <= to_y)
-            .nth(0);
-        println!("zenith {:?}, hit {:?}", zenith, hit);
+        let hit = detect_hit_point(&trajectory, from_x, to_x, from_y, to_y);
         if !hit.is_none() {
             max_elevation = std::cmp::max(max_elevation, zenith.1);
         }
     }
     max_elevation
+}
+
+fn find_matching_start_velocities(to_x: Distance) -> Vec<Velocity> {
+    let mut start_vxs = Vec::new();
+    for end_vx in 0..to_x {
+        let mut x = to_x;
+        let mut v = end_vx;
+        while x > 0 {
+            v += 1;
+            x -= v;
+        }
+        if x == 0 {
+            start_vxs.push(v);
+        }
+    }
+    start_vxs
+}
+
+fn count_all_possible_hit_velocities(
+    from_x: Distance,
+    to_x: Distance,
+    from_y: Elevation,
+    to_y: Elevation,
+) -> usize {
+    let mut counter = 0;
+    let mut velocities = HashSet::new();
+    for hit_x in from_x..=to_x {
+        velocities.extend(find_matching_start_velocities(hit_x));
+    }
+    for vx in velocities {
+        for vy in from_y..=100 {
+            let trajectory = calculate_trajectory(vx, vy, to_x, from_y);
+            if !detect_hit_point(&trajectory, from_x, to_x, from_y, to_y).is_none() {
+                counter += 1;
+            }
+        }
+    }
+    counter
+}
+
+fn calculate_solution(
+    from_x: Distance,
+    to_x: Distance,
+    from_y: Elevation,
+    to_y: Elevation,
+) -> (Elevation, usize) {
+    (
+        find_steepest_hit_curve_elevation(from_x, to_x, from_y, to_y),
+        count_all_possible_hit_velocities(from_x, to_x, from_y, to_y),
+    )
 }
 
 fn main() {
