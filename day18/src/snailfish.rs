@@ -92,7 +92,7 @@ impl Number {
     fn item_magnitude(&self, item: &Item) -> usize {
         match item {
             Item::Digit(d) => *d as usize,
-            Item::Nested(n) => self.number_magnitude(&n),
+            Item::Nested(n) => self.number_magnitude(n),
             _ => 0,
         }
     }
@@ -152,7 +152,7 @@ pub fn split_number(number: &mut Box<Number>) -> bool {
     NumberTraversal::new(|i, _| {
         if let Item::Digit(d) = i {
             if *d > 9 {
-                *i = Item::Nested(split_digit(d.clone()));
+                *i = Item::Nested(split_digit(*d));
                 return true;
             }
         }
@@ -172,7 +172,7 @@ pub fn explode_number(number: &mut Box<Number>) -> bool {
     let mut left_recipient_index: usize = 0;
     let mut right_recipient_index: usize = 0;
     // start explosion
-    if NumberTraversal::new(|i, level| {
+    let explosion_started = NumberTraversal::new(|i, level| {
         match i {
             Item::Digit(_) => digit_index += 1,
             Item::Nested(n) => {
@@ -192,8 +192,8 @@ pub fn explode_number(number: &mut Box<Number>) -> bool {
         }
         false
     })
-    .traverse_number(number)
-    {
+    .traverse_number(number);
+    if explosion_started {
         // update recipient digits of the exploded pair to the left and to the right
         let mut digit_index = 0;
         return NumberTraversal::new(|i, _| {

@@ -10,21 +10,12 @@ fn calculate_solution(number_string: &str) -> (usize, usize) {
         .map(|line| snailfish::Number::parse(line).unwrap())
         .collect::<Vec<_>>();
 
-    let sum = numbers
-        .iter()
-        .cloned()
-        .reduce(|a, b| snailfish::add(a, b))
-        .unwrap();
+    let sum = numbers.iter().cloned().reduce(snailfish::add).unwrap();
 
     let max_sum_magnitude = numbers
         .into_iter()
         .permutations(2)
-        .map(|ab| {
-            ab.into_iter()
-                .reduce(|a, b| snailfish::add(a, b))
-                .unwrap()
-                .magnitude()
-        })
+        .map(|ab| ab.into_iter().reduce(snailfish::add).unwrap().magnitude())
         .max()
         .unwrap();
     (sum.magnitude(), max_sum_magnitude)
