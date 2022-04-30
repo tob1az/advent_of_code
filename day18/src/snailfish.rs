@@ -1,10 +1,10 @@
 use std::fmt;
 
 // snailfish number
-#[derive(Default, PartialEq, Debug)]
+#[derive(Default, PartialEq, Debug, Clone)]
 pub struct Number(Item, Item);
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum Item {
     Digit(u32),
     Nested(Box<Number>),
@@ -99,7 +99,6 @@ impl Number {
 }
 
 pub fn add(a: Box<Number>, b: Box<Number>) -> Box<Number> {
-    println!("{}\n+{}", a, b);
     let mut sum = Box::new(Number(Item::Nested(a), Item::Nested(b)));
     loop {
         let exploded = explode_number(&mut sum);
@@ -111,7 +110,6 @@ pub fn add(a: Box<Number>, b: Box<Number>) -> Box<Number> {
             break;
         }
     }
-    println!("=        {}", sum);
     sum
 }
 
