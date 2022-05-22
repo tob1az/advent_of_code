@@ -117,7 +117,7 @@ fn deduce_transformations_to_origin(
     deduces_transformations
 }
 
-fn calculate_solution<T>(coordinates: &[T]) -> usize
+fn calculate_solution<T>(coordinates: &[T]) -> (usize, i32)
 where
     T: AsRef<[i32]>,
 {
@@ -152,31 +152,31 @@ where
         .beacons
         .iter()
         .cloned()
-        .collect::<HashSet<scanner::Beacon>>();
+        .collect::<HashSet<scanner::Object>>();
 
+    let mut scanners = Vec::new();
     for (report_index, transformations) in transformation_to_origin
         .into_iter()
         .chain(deduced_transformations.into_iter())
         .sorted_by_key(|(_, t)| t.len())
     {
+        scanners.push(
+            scanner::Object {
+                coordinates: [0, 0, 0],
+            }
+            .transformed(&transformations),
+        );
         let report = reports[report_index].transformed(&transformations);
         let beacons = report.beacons.into_iter().collect();
-        let before = unique_beacons.len();
         unique_beacons = unique_beacons.union(&beacons).cloned().collect();
-        let after = unique_beacons.len();
-        println!(
-            "added {} unique beacons from {}",
-            after - before,
-            report_index
-        );
     }
-
-    let beacons = unique_beacons
-        .into_iter()
-        .sorted_by_key(|b| b.coordinates[0])
-        .collect_vec();
-
-    beacons.len()
+    let max_manhattan = scanners
+        .iter()
+        .combinations(2)
+        .map(|pair| scanner::manhattan(pair[0], pair[1]))
+        .max()
+        .unwrap();
+    (unique_beacons.len(), max_manhattan)
 }
 
 fn main() {

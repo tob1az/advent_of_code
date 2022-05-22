@@ -2,20 +2,20 @@ use itertools::Itertools;
 
 #[derive(Debug, Clone)]
 pub struct Report {
-    pub beacons: Vec<Beacon>,
+    pub beacons: Vec<Object>,
 }
 
 pub type ThreeD = [i32; 3];
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
-pub struct Beacon {
+pub struct Object {
     pub coordinates: ThreeD,
 }
 
 #[derive(Debug, Clone)]
 pub struct BeaconPair<'a> {
     pub offsets: ThreeD,
-    pub beacons: (&'a Beacon, &'a Beacon),
+    pub beacons: (&'a Object, &'a Object),
 }
 
 pub type AxisIndices = [usize; 3];
@@ -42,7 +42,7 @@ pub struct Mapping {
     pub transformations: Vec<Transformation>,
 }
 
-impl From<&[i32]> for Beacon {
+impl From<&[i32]> for Object {
     fn from(coordinates: &[i32]) -> Self {
         debug_assert!(coordinates.len() == 3);
         Self {
@@ -55,7 +55,7 @@ impl Report {
     pub fn new(coordinates: &[i32]) -> Self {
         debug_assert!(coordinates.len() % 3 == 0);
         Self {
-            beacons: coordinates.chunks(3).map(Beacon::from).collect(),
+            beacons: coordinates.chunks(3).map(Object::from).collect(),
         }
     }
 
@@ -73,13 +73,7 @@ impl Report {
                 .beacons
                 .iter()
                 .map(|b| {
-                    let mut transformed_beacon = b.clone();
-                    for t in transformations.iter() {
-                        transformed_beacon = transformed_beacon
-                            .reoriented(&t.rotation)
-                            .transposed(&t.offset);
-                    }
-                    transformed_beacon
+                    b.transformed(transformations)
                 })
                 .collect_vec(),
         }
@@ -94,7 +88,7 @@ fn extract_inversions(a: &Offset, b: &Offset) -> AxisInversions {
     [a[0] != b[0], a[1] != b[1], a[2] != b[2]]
 }
 
-pub fn calculate_offsets(a: &Beacon, b: &Beacon) -> ThreeD {
+fn calculate_offsets(a: &Object, b: &Object) -> ThreeD {
     [
         b.coordinates[0] - a.coordinates[0],
         b.coordinates[1] - a.coordinates[1],
@@ -103,7 +97,7 @@ pub fn calculate_offsets(a: &Beacon, b: &Beacon) -> ThreeD {
 }
 
 impl<'a> BeaconPair<'a> {
-    fn new(a: &'a Beacon, b: &'a Beacon) -> Self {
+    fn new(a: &'a Object, b: &'a Object) -> Self {
         Self {
             offsets: calculate_offsets(a, b),
             beacons: (a, b),
@@ -169,7 +163,14 @@ impl Rotation {
     }
 }
 
-impl Beacon {
+pub fn manhattan(a: &Object, b: &Object) -> i32 {
+    let dx = b.coordinates[0] - a.coordinates[0];
+    let dy = b.coordinates[1] - a.coordinates[1];
+    let dz = b.coordinates[2] - a.coordinates[2];
+    dx.abs() + dy.abs() + dz.abs()
+}
+
+impl Object {
     pub fn reoriented(&self, rotation: &Rotation) -> Self {
         Self {
             coordinates: rotation.apply(&self.coordinates),
@@ -184,6 +185,16 @@ impl Beacon {
                 self.coordinates[2] - offsets[2],
             ],
         }
+    }
+
+    pub fn transformed(&self, transformations: &[Transformation]) -> Self {
+        let mut transformed_beacon = self.clone();
+        for t in transformations.iter() {
+            transformed_beacon = transformed_beacon
+                .reoriented(&t.rotation)
+                .transposed(&t.offset);
+        }
+        transformed_beacon
     }
 }
 
