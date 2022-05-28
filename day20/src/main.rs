@@ -8,10 +8,8 @@ use eyre::{Result, WrapErr};
 
 fn calculate_solution(image_data: &str, algorithm_data: &str) -> Result<usize> {
     let image = algo::Image::parse(image_data)?;
-    println!("original\n{}", image);
     let algorithm = algo::Algorithm::parse(algorithm_data)?;
     let enhanced = algorithm.enhance_image(&image);
-    println!("enhanced\n{}", enhanced);
     algorithm.enhance_image(&enhanced).count_light_pixels()
 }
 

@@ -1,8 +1,6 @@
 use eyre::{eyre, Result};
 use itertools::Itertools;
 use std::fmt;
-use crate::data;
-
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 enum Pixel {
@@ -30,9 +28,9 @@ impl fmt::Display for Image {
                 match self.get_pixel(row, 0, column, 0) {
                     Pixel::Dark => write!(f, "."),
                     Pixel::Light => write!(f, "#"),
-                };
+                }?
             }
-            writeln!(f, "");
+            writeln!(f, "")?
         }
         Ok(())
     }
@@ -43,13 +41,6 @@ fn parse_pixel(pixel_data: char) -> Result<Pixel> {
         '.' => Ok(Pixel::Dark),
         '#' => Ok(Pixel::Light),
         _ => Err(eyre!("Bad pixel: {pixel_data}")),
-    }
-}
-
-fn flip_pixel(pixel: Pixel) -> Pixel {
-    match pixel {
-        Pixel::Dark => Pixel::Light,
-        Pixel::Light => Pixel::Dark,
     }
 }
 
@@ -85,29 +76,21 @@ impl Image {
 
     fn get_pixel_box_factor(&self, row: i32, column: i32) -> usize {
         let mut bit = 1usize;
-        [
-            (-1, -1),
-            (-1, 0),
-            (-1, 1),
-            (0, -1),
-            (0, 0),
-            (0, 1),
-            (1, -1),
-            (1, 0),
-            (1, 1),
-        ]
-        .iter()
-        .map(|(r, c)| {
-            self.get_pixel(row, *r, column, *c)})
-        .rev()
-        .fold(0usize, |factor, pixel| {
-            let result = match pixel {
-                Pixel::Light => factor + bit,
-                Pixel::Dark => factor,
-            };
-            bit <<= 1;
-            result
-        })
+        (-1..=1)
+            .cartesian_product(-1..=1)
+            .into_iter()
+            .map(|(r, c)| self.get_pixel(row, r, column, c))
+            .collect_vec()
+            .into_iter()
+            .rev()
+            .fold(0usize, |factor, pixel| {
+                let result = match pixel {
+                    Pixel::Light => factor + bit,
+                    Pixel::Dark => factor,
+                };
+                bit <<= 1;
+                result
+            })
     }
 
     fn get_pixel(
