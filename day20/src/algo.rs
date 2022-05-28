@@ -8,7 +8,7 @@ enum Pixel {
     Dark,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Image {
     data: Vec<Vec<Pixel>>,
     outer_pixel_state: Pixel,
