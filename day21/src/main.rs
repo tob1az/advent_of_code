@@ -4,17 +4,18 @@ mod dirac_dice;
 use dirac_dice::{DeterministicDie, Player};
 
 fn calculate_solution(start_positions: &[usize; 2]) -> usize {
+    let goal = 1000;
     let mut players = [
-        Player::with_position(start_positions[0]),
-        Player::with_position(start_positions[1]),
+        Player::new(start_positions[0], goal),
+        Player::new(start_positions[1], goal),
     ];
-    let mut die = DeterministicDie::default();
+    let mut die = DeterministicDie::with_sides(100);
     let rolls = dirac_dice::play(&mut die, &mut players);
     let (n, loser) = players
         .iter()
         .enumerate()
         .filter(|(_, p)| !p.won())
-        .nth(0)
+        .next()
         .unwrap();
     println!(
         "Loser {n} has score {}, number of rolls {}",
