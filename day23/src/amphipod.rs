@@ -45,6 +45,7 @@ pub struct Burrow {
 struct OrganizingResult {
     cost: Energy,
     occupants: BurrowOccupants,
+    previous_achievements: HashMap<String, Energy>,
 }
 
 impl Species {
@@ -64,6 +65,15 @@ impl Species {
             "C" => Species::Copper,
             "D" => Species::Desert,
             _ => panic!("Wrong symbol {symbol}"),
+        }
+    }
+
+    fn serialize(&self) -> &str {
+        match self {
+            Species::Amber => "A",
+            Species::Bronze => "B",
+            Species::Copper => "C",
+            Species::Desert => "D",
         }
     }
 }
@@ -97,7 +107,7 @@ impl Burrow {
     ) {
         println!("try: total cost {}, moves {}", total_cost.0, moves);
         if self.are_occupants_organized(&occupants) {
-           return;
+            return;
         }
         if total_cost.0 > best_result.cost.0 {
             return;
@@ -105,6 +115,17 @@ impl Burrow {
         if moves > MAX_MOVES {
             println!("run ouf of moves");
             return;
+        }
+        let achievement = self.serialize_achievement(&occupants);
+        println!("achievement: {achievement} cost {}", total_cost.0);
+        if let Some(cost) = best_result.previous_achievements.get_mut(&achievement) {
+            if total_cost.0 >= cost.0 {
+                println!("too costly option");
+                return;
+            }
+            *cost = total_cost.clone();
+        } else {
+            best_result.previous_achievements.insert(achievement, total_cost);
         }
         for (old_position, species) in occupants.iter().sorted_by_key(|(_, s)| s.move_cost().0) {
             for (position, move_cost) in self
@@ -286,6 +307,22 @@ impl Burrow {
         }
         println!("Roaming from {}, {}", position.0, position.1);
         State::Roaming
+    }
+
+    fn serialize_achievement(&self, achievement: &BurrowOccupants) -> String {
+        self.hallway
+            .space
+            .iter()
+            .cloned()
+            .chain(self.rooms.iter().flat_map(|r| r.space.clone()))
+            .flat_map(|p| {
+                if let Some(a) = achievement.get(&p) {
+                    a.serialize().chars()
+                } else {
+                    "-".chars()
+                }
+            })
+            .collect()
     }
 
     pub fn parse(map: &str) -> Self {
