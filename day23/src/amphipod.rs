@@ -10,21 +10,22 @@ enum Species {
     Desert,
 }
 
-enum State {
-    Settled,
-    Roaming,
-    Leaving,
-}
-
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 struct Position(u32, u32);
 
 #[derive(Clone, Copy, Default, Debug)]
 pub struct Energy(pub u32);
 
+#[derive(Debug)]
 struct Room {
     species: Species,
-    space: [Position; 2],
+    space: Vec<Position>,
+}
+
+enum State<'a> {
+    Settled,
+    Entering(&'a Room),
+    Leaving(&'a Room),
 }
 
 struct Hallway {
@@ -84,6 +85,10 @@ impl Room {
     fn contains(&self, position: &Position) -> bool {
         self.space.iter().find(|s| **s == *position).is_some()
     }
+
+    fn x(&self) -> u32 {
+        self.space[0].0
+    }
 }
 
 impl Burrow {
@@ -92,7 +97,7 @@ impl Burrow {
 
         self.try_all_moves(&mut best_result, self.arrangement.clone(), Energy(0), 0);
 
-        if best_result.cost.0 > 0 {
+        if best_result.cost.0 != u32::MAX {
             self.arrangement = best_result.arrangement;
         }
 
@@ -175,12 +180,14 @@ impl Burrow {
         if let Some(amphipod) = arrangement.get(position) {
             let moves = match self.classify(position, *amphipod, &arrangement) {
                 State::Settled => Vec::new(),
-                State::Roaming => self
-                    .go_to_destination_from(position, *amphipod, &arrangement)
+                State::Entering(room) => self
+                    .go_to_destination_from(position, room, *amphipod, &arrangement)
                     .iter()
                     .cloned()
                     .collect_vec(),
-                State::Leaving => self.go_to_hallway_from(position, *amphipod, arrangement),
+                State::Leaving(room) => {
+                    self.go_to_hallway_from(position, room, *amphipod, arrangement)
+                }
             };
             if moves.len() > 0 {
                 println!(
@@ -199,11 +206,11 @@ impl Burrow {
     fn go_to_destination_from(
         &self,
         position: &Position,
+        destination: &Room,
         amphipod: Species,
         arrangement: &Arrangement,
     ) -> Option<Move> {
-        let destination = self.rooms.iter().find(|r| r.species == amphipod).unwrap();
-        let destination_x = destination.space[0].0;
+        let destination_x = destination.x();
         let exit_blocked = if destination_x > position.0 {
             self.hallway
                 .space
@@ -226,17 +233,27 @@ impl Burrow {
         if exit_blocked || arrangement.get(&destination.space[0]).is_some() {
             None
         } else {
+            let foreigner = destination.space.iter().find(|p| {
+                if let Some(a) = arrangement.get(p) {
+                    if *a != destination.species {
+                        return true;
+                    }
+                };
+                return false;
+            });
+            if foreigner.is_some() {
+                return None;
+            }
             let moves_to_enter_room = destination_x.abs_diff(position.0);
-            let rear_space = arrangement.get(&destination.space[1]);
-            if rear_space.is_none() {
+            let deepest = destination
+                .space
+                .iter()
+                .take_while(|p| arrangement.get(p).is_none())
+                .last();
+            if let Some(new_position) = deepest {
                 Some((
-                    destination.space[1].clone(),
-                    Energy((moves_to_enter_room + 2) * amphipod.move_cost().0),
-                ))
-            } else if *rear_space.unwrap() == amphipod {
-                Some((
-                    destination.space[0].clone(),
-                    Energy((moves_to_enter_room + 1) * amphipod.move_cost().0),
+                    new_position.clone(),
+                    Energy((moves_to_enter_room + new_position.1) * amphipod.move_cost().0),
                 ))
             } else {
                 None
@@ -247,12 +264,17 @@ impl Burrow {
     fn go_to_hallway_from(
         &self,
         position: &Position,
+        room: &Room,
         amphipod: Species,
         arrangement: &Arrangement,
     ) -> Vec<Move> {
-        if position.1 == 2 {
-            let neighbor_position = Position(position.0, 1);
-            if arrangement.get(&neighbor_position).is_some() {
+        if position.1 != 1 {
+            if room
+                .space
+                .iter()
+                .find(|p| p.1 < position.1 && arrangement.get(&p).is_some())
+                .is_some()
+            {
                 return Vec::new();
             }
         }
@@ -279,28 +301,25 @@ impl Burrow {
 
     fn classify(&self, position: &Position, amphipod: Species, arrangement: &Arrangement) -> State {
         if let Some(room) = self.rooms.iter().filter(|r| r.contains(position)).next() {
-            // todo: generalize room geometry
             if room.species != amphipod {
                 println!("Leave {}, {}", position.0, position.1);
-                return State::Leaving;
+                return State::Leaving(room);
             }
-            if position.1 == 2 {
+            if room
+                .space
+                .iter()
+                .find(|p| p.1 > position.1 && *arrangement.get(&p).unwrap_or(&amphipod) != amphipod)
+                .is_none()
+            {
                 println!("{}, {} is settled", position.0, position.1);
                 return State::Settled;
             }
-            let neighbor_position = Position(position.0, 2);
-            if let Some(neighbor) = arrangement.get(&neighbor_position) {
-                if *neighbor == amphipod {
-                    println!("{}, {} is totally settled", position.0, position.1);
-
-                    return State::Settled;
-                }
-                println!("Leave (2) {}, {}", position.0, position.1);
-                return State::Leaving;
-            }
+            println!("Leave (2) {}, {}", position.0, position.1);
+            return State::Leaving(room);
         }
+        let destination = self.rooms.iter().find(|r| r.species == amphipod).unwrap();
         println!("Roaming from {}, {}", position.0, position.1);
-        State::Roaming
+        State::Entering(destination)
     }
 
     fn serialize_achievement(&self, achievement: &Arrangement) -> SerializedArrangement {
@@ -321,27 +340,17 @@ impl Burrow {
 
     pub fn parse(map: &str) -> Self {
         let room_xs = [3, 5, 7, 9];
-        let room_coords = (1..3)
+        let room_coords = (1..)
             .cartesian_product(room_xs.iter().cloned())
-            .map(|(y, x)| Position(x, y))
-            .collect_vec();
-        let amphipods = RegexBuilder::new(
-            r#".+
-.+
-...(.).(.).(.).(.)...
-  .(.).(.).(.).(.).
-.+"#,
-        )
-        .multi_line(true)
-        .build()
-        .unwrap()
-        .captures(map)
-        .unwrap()
-        .iter()
-        .skip(1)
-        .zip(room_coords.iter())
-        .map(|(c, p)| (p.clone(), Species::parse(c.unwrap().as_str())))
-        .collect::<HashMap<_, _>>();
+            .map(|(y, x)| Position(x, y));
+        let amphipods = RegexBuilder::new("[A-D]")
+            .multi_line(true)
+            .build()
+            .unwrap()
+            .captures_iter(map)
+            .zip(room_coords)
+            .map(|(c, p)| (p.clone(), Species::parse(&c[0])))
+            .collect::<HashMap<_, _>>();
 
         let hallway = Hallway {
             space: (1..12)
@@ -355,25 +364,28 @@ impl Burrow {
                 .collect::<Vec<_>>(),
         };
 
+        let room_depth = amphipods.len() / room_xs.len();
+        let rooms = room_xs
+            .into_iter()
+            .zip(
+                [
+                    Species::Amber,
+                    Species::Bronze,
+                    Species::Copper,
+                    Species::Desert,
+                ]
+                .repeat(room_depth),
+            )
+            .map(|(x, s)| Room {
+                species: s,
+                space: (1..=room_depth).map(|y| Position(x, y as u32)).collect(),
+            })
+            .collect_vec()
+            .try_into()
+            .unwrap();
+
         Burrow {
-            rooms: [
-                Room {
-                    species: Species::Amber,
-                    space: [Position(3, 1), Position(3, 2)],
-                },
-                Room {
-                    species: Species::Bronze,
-                    space: [Position(5, 1), Position(5, 2)],
-                },
-                Room {
-                    species: Species::Copper,
-                    space: [Position(7, 1), Position(7, 2)],
-                },
-                Room {
-                    species: Species::Desert,
-                    space: [Position(9, 1), Position(9, 2)],
-                },
-            ],
+            rooms,
             arrangement: amphipods,
             hallway,
         }
@@ -400,6 +412,7 @@ mod test {
             r#"#############
 #...........#
 ###A#B#C#D###
+  #A#B#C#D#
   #A#B#C#D#
   #########"#,
         );

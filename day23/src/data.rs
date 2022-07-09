@@ -1,11 +1,12 @@
-pub const BURROW_MAP: &str = r#"#############
+pub const SMALL_BURROW_MAP: &str = r#"#############
 #...........#
 ###A#C#B#D###
   #B#A#D#C#
   #########"#;
-
-pub const REF_MAP: &str = r#"#############
+pub const BIG_BURROW_MAP: &str = r#"#############
 #...........#
-###B#C#B#D###
-  #A#D#C#A#
+###A#C#B#D###
+  #D#C#B#A#
+  #D#B#A#C#
+  #B#A#D#C#
   #########"#;
