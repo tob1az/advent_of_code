@@ -13,7 +13,7 @@ enum Species {
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 struct Position(u32, u32);
 
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, PartialOrd, Eq, Ord)]
 pub struct Energy(pub u32);
 
 #[derive(Debug)]
@@ -51,6 +51,11 @@ struct OrganizingResult {
 
 type Move = (Position, Energy);
 
+struct BurrowOccupant {
+    species: Species,
+    position: Position,
+}
+
 impl Species {
     fn move_cost(&self) -> Energy {
         match self {
@@ -83,7 +88,7 @@ impl Species {
 
 impl Room {
     fn contains(&self, position: &Position) -> bool {
-        self.space.iter().find(|s| **s == *position).is_some()
+        self.space.iter().any(|s| *s == *position)
     }
 
     fn x(&self) -> u32 {
@@ -95,9 +100,15 @@ impl Burrow {
     pub fn organize(&mut self) -> Energy {
         let mut best_result = OrganizingResult::new();
 
-        self.try_all_moves(&mut best_result, self.arrangement.clone(), Energy(0), 0);
+        let moves_made = 0;
+        self.try_all_moves(
+            &mut best_result,
+            self.arrangement.clone(),
+            Energy(0),
+            moves_made,
+        );
 
-        if best_result.cost.0 != u32::MAX {
+        if best_result.successful() {
             self.arrangement = best_result.arrangement;
         }
 
@@ -111,45 +122,41 @@ impl Burrow {
         total_cost: Energy,
         moves: u32,
     ) {
-        println!("try: total cost {}, moves {}", total_cost.0, moves);
+        // stop if already organized
         if self.are_amphipods_organized(&arrangement) {
             return;
         }
-        if total_cost.0 > best_result.cost.0 {
+        // can it improve the result?
+        if total_cost > best_result.cost {
             return;
         }
-        let achievement = self.serialize_achievement(&arrangement);
-        println!("achievement: {achievement} cost {}", total_cost.0);
-        if let Some(cost) = best_result.previous_achievements.get_mut(&achievement) {
-            if total_cost.0 >= cost.0 {
-                println!("too costly option");
+        // pruning
+        let key = self.serialize_arrangement(&arrangement);
+        if let Some(cost) = best_result.previous_achievements.get_mut(&key) {
+            // too costly
+            if total_cost >= *cost {
                 return;
             }
-            *cost = total_cost.clone();
+            *cost = total_cost;
         } else {
-            best_result
-                .previous_achievements
-                .insert(achievement, total_cost);
+            // remember the achievement to prune more expensive results
+            best_result.previous_achievements.insert(key, total_cost);
         }
-        for (old_position, species) in arrangement.iter().sorted_by_key(|(_, s)| s.move_cost().0) {
+        for (old_position, species) in arrangement.iter().sorted_by_key(|(_, s)| s.move_cost()) {
             for (position, move_cost) in self
                 .evaluate_moves_from(&old_position, &arrangement)
                 .iter()
-                .sorted_by_key(|(_, e)| e.0)
+                .sorted_by_key(|(_, e)| e)
             {
+                // make move
                 let mut modified = arrangement.clone();
-                println!(
-                    "move {}, {} => {}, {}",
-                    old_position.0, old_position.1, position.0, position.1
-                );
-                modified.remove(&old_position);
+                modified.remove(old_position);
                 modified.insert(position.clone(), *species);
 
                 let new_cost = Energy(total_cost.0 + move_cost.0);
 
                 if self.are_amphipods_organized(&modified) {
-                    if new_cost.0 < best_result.cost.0 {
-                        println!("organized with cost {}", new_cost.0);
+                    if new_cost < best_result.cost {
                         best_result.cost = new_cost;
                         best_result.arrangement = modified;
                     }
@@ -178,45 +185,37 @@ impl Burrow {
 
     fn evaluate_moves_from(&self, position: &Position, arrangement: &Arrangement) -> Vec<Move> {
         if let Some(amphipod) = arrangement.get(position) {
-            let moves = match self.classify(position, *amphipod, &arrangement) {
+            let occupant = BurrowOccupant {
+                species: *amphipod,
+                position: position.clone(),
+            };
+            match self.classify(&occupant, arrangement) {
                 State::Settled => Vec::new(),
                 State::Entering(room) => self
-                    .go_to_destination_from(position, room, *amphipod, &arrangement)
+                    .go_to_destination(&occupant, room, arrangement)
                     .iter()
                     .cloned()
                     .collect_vec(),
-                State::Leaving(room) => {
-                    self.go_to_hallway_from(position, room, *amphipod, arrangement)
-                }
-            };
-            if moves.len() > 0 {
-                println!(
-                    "found {} moves from {}, {}",
-                    moves.len(),
-                    position.0,
-                    position.1
-                );
+                State::Leaving(room) => self.go_to_hallway(&occupant, room, arrangement),
             }
-            moves
         } else {
             Vec::new()
         }
     }
 
-    fn go_to_destination_from(
+    fn go_to_destination(
         &self,
-        position: &Position,
+        occupant: &BurrowOccupant,
         destination: &Room,
-        amphipod: Species,
         arrangement: &Arrangement,
     ) -> Option<Move> {
         let destination_x = destination.x();
-        let exit_blocked = if destination_x > position.0 {
+        let destination_entry_blocked = if destination_x > occupant.position.0 {
             self.hallway
                 .space
                 .iter()
                 .filter(|s| {
-                    s.0 > position.0 && s.0 < destination_x && arrangement.get(&s).is_some()
+                    s.0 > occupant.position.0 && s.0 < destination_x && arrangement.get(s).is_some()
                 })
                 .count()
                 > 0
@@ -225,104 +224,109 @@ impl Burrow {
                 .space
                 .iter()
                 .filter(|s| {
-                    s.0 < position.0 && s.0 > destination_x && arrangement.get(&s).is_some()
+                    s.0 < occupant.position.0 && s.0 > destination_x && arrangement.get(s).is_some()
                 })
                 .count()
                 > 0
         };
-        if exit_blocked || arrangement.get(&destination.space[0]).is_some() {
+        // don't move if destination is blocked or full
+        if destination_entry_blocked || arrangement.get(&destination.space[0]).is_some() {
             None
         } else {
+            // find foreign species in the destination room
             let foreigner = destination.space.iter().find(|p| {
                 if let Some(a) = arrangement.get(p) {
                     if *a != destination.species {
                         return true;
                     }
                 };
-                return false;
+                false
             });
+            // don't move to the destination room is it's occupied by foreigners
             if foreigner.is_some() {
                 return None;
             }
-            let moves_to_enter_room = destination_x.abs_diff(position.0);
+            // go to the deepest position in the room
+            let moves_to_enter_room = destination_x.abs_diff(occupant.position.0);
             let deepest = destination
                 .space
                 .iter()
                 .take_while(|p| arrangement.get(p).is_none())
                 .last();
-            if let Some(new_position) = deepest {
-                Some((
+            deepest.map(|new_position| {
+                (
                     new_position.clone(),
-                    Energy((moves_to_enter_room + new_position.1) * amphipod.move_cost().0),
-                ))
-            } else {
-                None
-            }
+                    Energy((moves_to_enter_room + new_position.1) * occupant.species.move_cost().0),
+                )
+            })
         }
     }
 
-    fn go_to_hallway_from(
+    fn go_to_hallway(
         &self,
-        position: &Position,
+        occupant: &BurrowOccupant,
         room: &Room,
-        amphipod: Species,
         arrangement: &Arrangement,
     ) -> Vec<Move> {
-        if position.1 != 1 {
-            if room
+        // if not at the exit
+        if occupant.position.1 != 1
+            && room
                 .space
                 .iter()
-                .find(|p| p.1 < position.1 && arrangement.get(&p).is_some())
-                .is_some()
-            {
-                return Vec::new();
-            }
+                .any(|p| p.1 < occupant.position.1 && arrangement.get(p).is_some())
+        {
+            return Vec::new();
         }
+
+        // find all possible positions in the hallway not blocked by other amphipods
         self.hallway
             .space
             .iter()
             .rev()
-            .filter(|s| s.0 < position.0)
-            .take_while(|s| arrangement.get(&s).is_none())
+            .filter(|s| s.0 < occupant.position.0)
+            .take_while(|s| arrangement.get(s).is_none())
             .interleave(
                 self.hallway
                     .space
                     .iter()
-                    .filter(|s| s.0 > position.0)
-                    .take_while(|s| arrangement.get(&s).is_none()),
+                    .filter(|s| s.0 > occupant.position.0)
+                    .take_while(|s| arrangement.get(s).is_none()),
             )
             .cloned()
             .map(|p| {
-                let cost = Energy((p.0.abs_diff(position.0) + position.1) * amphipod.move_cost().0);
+                let cost = Energy(
+                    (p.0.abs_diff(occupant.position.0) + occupant.position.1)
+                        * occupant.species.move_cost().0,
+                );
                 (p, cost)
             })
             .collect()
     }
 
-    fn classify(&self, position: &Position, amphipod: Species, arrangement: &Arrangement) -> State {
-        if let Some(room) = self.rooms.iter().filter(|r| r.contains(position)).next() {
-            if room.species != amphipod {
-                println!("Leave {}, {}", position.0, position.1);
+    fn classify(&self, occupant: &BurrowOccupant, arrangement: &Arrangement) -> State {
+        if let Some(room) = self.rooms.iter().find(|r| r.contains(&occupant.position)) {
+            if room.species != occupant.species {
                 return State::Leaving(room);
             }
-            if room
-                .space
-                .iter()
-                .find(|p| p.1 > position.1 && *arrangement.get(&p).unwrap_or(&amphipod) != amphipod)
-                .is_none()
-            {
-                println!("{}, {} is settled", position.0, position.1);
-                return State::Settled;
-            }
-            println!("Leave (2) {}, {}", position.0, position.1);
-            return State::Leaving(room);
+            let no_foreigners_in_rear = !room.space.iter().any(|p| {
+                p.1 > occupant.position.1
+                    && *arrangement.get(p).unwrap_or(&occupant.species) != occupant.species
+            });
+            return if no_foreigners_in_rear {
+                State::Settled
+            } else {
+                State::Leaving(room)
+            };
         }
-        let destination = self.rooms.iter().find(|r| r.species == amphipod).unwrap();
-        println!("Roaming from {}, {}", position.0, position.1);
+        let destination = self
+            .rooms
+            .iter()
+            .find(|r| r.species == occupant.species)
+            .unwrap();
         State::Entering(destination)
     }
 
-    fn serialize_achievement(&self, achievement: &Arrangement) -> SerializedArrangement {
+    fn serialize_arrangement(&self, achievement: &Arrangement) -> SerializedArrangement {
         self.hallway
             .space
             .iter()
@@ -349,7 +353,7 @@ impl Burrow {
             .unwrap()
             .captures_iter(map)
             .zip(room_coords)
-            .map(|(c, p)| (p.clone(), Species::parse(&c[0])))
+            .map(|(c, p)| (p, Species::parse(&c[0])))
             .collect::<HashMap<_, _>>();
 
         let hallway = Hallway {
@@ -399,6 +403,10 @@ impl OrganizingResult {
             arrangement: Arrangement::new(),
             previous_achievements: HashMap::new(),
         }
+    }
+
+    fn successful(&self) -> bool {
+        self.cost.0 != u32::MAX
     }
 }
 
