@@ -215,7 +215,7 @@ impl Burrow {
                 .space
                 .iter()
                 .filter(|s| {
-                    s.0 > occupant.position.0 && s.0 < destination_x && arrangement.get(s).is_some()
+                    s.0 > occupant.position.0 && s.0 < destination_x && arrangement.contains_key(s)
                 })
                 .count()
                 > 0
@@ -224,13 +224,13 @@ impl Burrow {
                 .space
                 .iter()
                 .filter(|s| {
-                    s.0 < occupant.position.0 && s.0 > destination_x && arrangement.get(s).is_some()
+                    s.0 < occupant.position.0 && s.0 > destination_x && arrangement.contains_key(s)
                 })
                 .count()
                 > 0
         };
         // don't move if destination is blocked or full
-        if destination_entry_blocked || arrangement.get(&destination.space[0]).is_some() {
+        if destination_entry_blocked || arrangement.contains_key(&destination.space[0]) {
             None
         } else {
             // find foreign species in the destination room
@@ -251,7 +251,7 @@ impl Burrow {
             let deepest = destination
                 .space
                 .iter()
-                .take_while(|p| arrangement.get(p).is_none())
+                .take_while(|p| !arrangement.contains_key(p))
                 .last();
             deepest.map(|new_position| {
                 (
@@ -273,7 +273,7 @@ impl Burrow {
             && room
                 .space
                 .iter()
-                .any(|p| p.1 < occupant.position.1 && arrangement.get(p).is_some())
+                .any(|p| p.1 < occupant.position.1 && arrangement.contains_key(p))
         {
             return Vec::new();
         }
@@ -284,13 +284,13 @@ impl Burrow {
             .iter()
             .rev()
             .filter(|s| s.0 < occupant.position.0)
-            .take_while(|s| arrangement.get(s).is_none())
+            .take_while(|s| !arrangement.contains_key(s))
             .interleave(
                 self.hallway
                     .space
                     .iter()
                     .filter(|s| s.0 > occupant.position.0)
-                    .take_while(|s| arrangement.get(s).is_none()),
+                    .take_while(|s| !arrangement.contains_key(s)),
             )
             .cloned()
             .map(|p| {
