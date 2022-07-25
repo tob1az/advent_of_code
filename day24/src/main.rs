@@ -14,21 +14,26 @@ fn number_to_stack(n: Number) -> Vec<Number> {
     digits
 }
 
-fn calculate_solution(code: &str) -> Number {
-    let program = alu::parse_program(code);
-    let model_number = alu::find_largest_valid_model_number(&program);
-
+fn verify_model_number(number: Number, program: &alu::Program) -> bool {
     let mut computer = alu::Alu::default();
-    let mut input = number_to_stack(model_number);
-    println!("input={:?}", input);
-
-    computer.run_program(&program, &mut input);
+    let mut input = number_to_stack(number);
+ 
+    computer.run_program(program, &mut input);
     let crc = computer.get_register(alu::Register::Z);
-    println!("CRC({model_number})={crc}");
-    if crc == 0 {
-        return model_number;
+    println!("CRC({number})={crc}");
+    crc == 0
+}
+
+fn calculate_solution(code: &str) -> (Number, Number) {
+    let program = alu::parse_program(code);
+    let (min, max) = alu::find_valid_model_number_extrema(&program);
+    if !verify_model_number(min, &program) {
+        panic!("invalid number {min}");
     }
-    panic!("could not find a valid number");
+    if !verify_model_number(max, &program) {
+        panic!("invalid number {max}");
+    }
+    (min, max)
 }
 
 fn main() {

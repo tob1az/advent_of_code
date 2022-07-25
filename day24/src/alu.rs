@@ -149,12 +149,64 @@ enum MacroOp {
     Pop(Index, Number),
 }
 
-pub fn find_largest_valid_model_number(monad_program: &[Instruction]) -> Number {
+fn stack_to_number(digits_stack: &[Number]) -> Number {
+    let mut number = 0;
+    for &digit in digits_stack {
+        number *= 10;
+        number += digit;
+    }
+    number
+}
+
+const MODEL_NUMBER_LENGTH: usize = 14;
+const SUBPROGRAM_LENGTH: usize = 18;
+
+fn deduce_max_valid_number(macro_ops: &[MacroOp]) -> Number {
+    let mut digits = vec![0; MODEL_NUMBER_LENGTH];
+    let mut stack = Vec::with_capacity(MODEL_NUMBER_LENGTH);
+    for op in macro_ops.iter() {
+        match *op {
+            MacroOp::Push(i, n) => stack.push((i, n)),
+            MacroOp::Pop(i, n) => {
+                let (prev_i, prev_n) = stack.pop().expect("unexpected stack pop");
+                if prev_n + n >= 0 {
+                    digits[i] = 9;
+                    digits[prev_i] = digits[i] - prev_n - n;
+                } else {
+                    digits[prev_i] = 9;
+                    digits[i] = digits[prev_i] + prev_n + n;
+                }
+            }
+        }
+    }
+    stack_to_number(&digits)
+}
+
+fn deduce_min_valid_number(macro_ops: &[MacroOp]) -> Number {
+    let mut digits = vec![0; MODEL_NUMBER_LENGTH];
+    let mut stack = Vec::with_capacity(MODEL_NUMBER_LENGTH);
+    for op in macro_ops.iter() {
+        match *op {
+            MacroOp::Push(i, n) => stack.push((i, n)),
+            MacroOp::Pop(i, n) => {
+                let (prev_i, prev_n) = stack.pop().expect("unexpected stack pop");
+                if prev_n + n >= 0 {
+                    digits[prev_i] = 1;
+                    digits[i] = digits[prev_i] + prev_n + n;
+                } else {
+                    digits[i] = 1;
+                    digits[prev_i] = digits[i] - prev_n - n;
+                }
+            }
+        }
+    }
+    stack_to_number(&digits)
+}
+
+pub fn find_valid_model_number_extrema(monad_program: &[Instruction]) -> (Number, Number) {
     // split into 14 subprograms 18 instructions each
     // find key parameters: kind (push or pop), A, B
     // find max valid digits using a stack
-    const MODEL_NUMBER_LENGTH: usize = 14;
-    const SUBPROGRAM_LENGTH: usize = 18;
     debug_assert_eq!(monad_program.len(), MODEL_NUMBER_LENGTH * SUBPROGRAM_LENGTH);
     let subprograms = monad_program.chunks(SUBPROGRAM_LENGTH).collect_vec();
     let macro_ops = subprograms
@@ -179,28 +231,9 @@ pub fn find_largest_valid_model_number(monad_program: &[Instruction]) -> Number 
         })
         .collect_vec();
 
-    let mut digits = vec![0; MODEL_NUMBER_LENGTH];
-    let mut stack = Vec::with_capacity(MODEL_NUMBER_LENGTH);
-    for op in macro_ops.into_iter() {
-        match op {
-            MacroOp::Push(i, n) => stack.push((i, n)),
-            MacroOp::Pop(i, n) => {
-                let (prev_i, prev_n) = stack.pop().expect("unexpected stack pop");
-                if prev_n + n >= 0 {
-                    digits[i] = 9;
-                    digits[prev_i] = digits[i] - prev_n - n;
-                } else {
-                    digits[prev_i] = 9;
-                    digits[i] = digits[prev_i] + prev_n + n;
-                }
-            }
-        }
-    }
-    let mut model_number = 0;
-    for &digit in digits.iter() {
-        model_number *= 10;
-        model_number += digit;
-    }
-    println!("model number = {model_number}");
-    model_number
+    let max_model_number = deduce_max_valid_number(&macro_ops);
+    println!("max model number = {max_model_number}");
+    let min_model_number = deduce_min_valid_number(&macro_ops);
+    println!("min model number = {min_model_number}");
+    (min_model_number, max_model_number)
 }
